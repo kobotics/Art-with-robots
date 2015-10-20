@@ -1,0 +1,40 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 14
+VisualStudioVersion = 14.0.23107.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CoulombField", "..\..\..\..\..\..\OpenHaptics\Developer\3.4.0\examples\HD\graphics\CoulombField\CoulombField_VS2010.vcxproj", "{7C386032-B03D-41D3-8A93-E2F7CB0193A4}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
+		DebugAcademicEdition|x64 = DebugAcademicEdition|x64
+		DebugAcademicEdition|x86 = DebugAcademicEdition|x86
+		Release|x64 = Release|x64
+		Release|x86 = Release|x86
+		ReleaseAcademicEdition|x64 = ReleaseAcademicEdition|x64
+		ReleaseAcademicEdition|x86 = ReleaseAcademicEdition|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.Debug|x64.ActiveCfg = Debug|x64
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.Debug|x64.Build.0 = Debug|x64
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.Debug|x86.ActiveCfg = Debug|Win32
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.Debug|x86.Build.0 = Debug|Win32
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.DebugAcademicEdition|x64.ActiveCfg = DebugAcademicEdition|x64
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.DebugAcademicEdition|x64.Build.0 = DebugAcademicEdition|x64
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.DebugAcademicEdition|x86.ActiveCfg = DebugAcademicEdition|Win32
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.DebugAcademicEdition|x86.Build.0 = DebugAcademicEdition|Win32
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.Release|x64.ActiveCfg = Release|x64
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.Release|x64.Build.0 = Release|x64
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.Release|x86.ActiveCfg = Release|Win32
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.Release|x86.Build.0 = Release|Win32
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.ReleaseAcademicEdition|x64.ActiveCfg = ReleaseAcademicEdition|x64
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.ReleaseAcademicEdition|x64.Build.0 = ReleaseAcademicEdition|x64
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.ReleaseAcademicEdition|x86.ActiveCfg = ReleaseAcademicEdition|Win32
+		{7C386032-B03D-41D3-8A93-E2F7CB0193A4}.ReleaseAcademicEdition|x86.Build.0 = ReleaseAcademicEdition|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

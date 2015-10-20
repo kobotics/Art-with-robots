@@ -1,283 +1,423 @@
-/////////////////////////////////////////////////////////////////////////////
-//OpenHaptics QuickHaptics - Coulomb Force Demo
-//SensAble Technologies, Woburn, MA
-//Movember 11, 2008
-//Programmers: Hari Vasudevan & Venkatraghavan Gourishankar
-//
-// This demo uses QuickHaptics to set up a HD servoloop callback. The skull
-// location defines a Coulomb Force for the Phantom.
+/*****************************************************************************
 
-// Note that when the Proxy Position is obtained within the servo loop,
-// all coordinates are in the "device space" of the Phantom. Thus,
-// matrix transformations must be performed from Device Space to World Space
-// and vice versa.
-//////////////////////////////////////////////////////////////////////////////
+Copyright (c) 2004 SensAble Technologies, Inc. All rights reserved.
 
-#include <QHHeadersGLUT.h>//Include all necessary headers
-#include <HDU/hduMath.h>
-#include <HDU/hduMatrix.h>
+OpenHaptics(TM) toolkit. The material embodied in this software and use of
+this software is subject to the terms and conditions of the clickthrough
+Development License Agreement.
 
-class DataTransportClass//This class carried data into the ServoLoop thread
+For questions, comments or bug reports, go to forums at: 
+    http://dsc.sensable.com
+
+Module Name: 
+
+  main.cpp
+
+Description:
+
+  The main file that performs all haptics-relevant operation. Within a 
+  asynchronous callback the graphics thread reads the position and sets
+  the force. Within a synchronous callback the graphics thread gets the
+  position and constructs graphics elements (e.g. force vector).
+
+*******************************************************************************/
+
+#include <stdlib.h>
+#include <iostream>
+#include <cstdio>
+#include <cassert>
+
+#include <HD/hd.h>
+
+#include "helper.h"
+
+#include <HDU/hduError.h>
+#include <HDU/hduVector.h>
+
+// Sample code to read in test cases:
+#include <iostream>
+#include <fstream>
+#include <string>
+using namespace std;
+
+static double sphereRadius = 15;
+static double mySphereRadius = 3;
+
+/* Charge (positive/negative) */
+int charge = 1;
+
+static HHD ghHD = HD_INVALID_HANDLE;
+static HDSchedulerHandle gSchedulerCallback = HD_INVALID_HANDLE;
+
+/* Glut callback functions used by helper.cpp */
+void displayFunction(void);
+void handleIdle(void);
+
+
+
+hduVector3Dd forceField(hduVector3Dd pos, hduVector3Dd* shape, int shape_size);
+
+
+hduVector3Dd* Shape;
+int Shape_size = 0;
+
+/* Haptic device record. */
+struct DeviceDisplayState
 {
-public:
-	TriMesh* Model;//Trimesh pointer to hold mesh data
-	Sphere* cursorSphere;//Sphere pointer. for the Sphere which replaces the cursor in this demo
-	Cylinder* forceArrow;//The bar on the Sphere showing the magnitude and direction of force generated
-    Cone* forceArrowTip;// The bar tip that points in the force direction.
-	Cursor* deviceCursor;//Pointer to hold the cursor data
-    Text* descriptionText;
+    HHD m_hHD;
+    hduVector3Dd position;
+    hduVector3Dd force;
 };
 
-double chargeRadius = 3;//This variable defines the radius around the charge when the inverse square law changes to a spring force law.
-hduMatrix WorldToDevice;//This matrix contains the World Space to DeviceSpace Transformation
-hduVector3Dd forceVec;//This variable contains the force vector.
-
-void GraphicsCallback(void);//Graphics callback routine
-void HLCALLBACK computeForceCB(HDdouble force[3], HLcache *cache, void *userdata);//Servo loop callback
-void HLCALLBACK startEffectCB(HLcache *cache, void *userdata);//Servo Loop callback
-void HLCALLBACK stopEffectCB(HLcache *cache, void *userdata);//Servo Loop callback
-hduVector3Dd forceField(hduVector3Dd Pos1, hduVector3Dd Pos2, HDdouble Multiplier, HLdouble Radius);//This function computer the force beween the Model and the particle based on the positions
-
-
-int main(int argc, char *argv[])
+/*******************************************************************************
+ Client callback used by the graphics main loop function.
+ Use this callback synchronously.
+ Gets data, in a thread safe manner, that is constantly being modified by the 
+ haptics thread. 
+*******************************************************************************/
+HDCallbackCode HDCALLBACK DeviceStateCallback(void *pUserData)
 {
-	QHGLUT* DisplayObject = new QHGLUT(argc,argv);//create a display window
-	DataTransportClass dataObject;//Initialize an Object to transport data into the servoloop callback
- 
-    DeviceSpace* OmniSpace = new DeviceSpace;//Find the default Phantom Device
-    DisplayObject->setName("Coulomb Field Demo");//Give the window a title
-    DisplayObject->tell(OmniSpace);//Tell quickHaptics about the device space object    
+    DeviceDisplayState *pDisplayState = 
+        static_cast<DeviceDisplayState *>(pUserData);
 
-    dataObject.cursorSphere = new Sphere(chargeRadius,15);//Initialise a Sphere
-	dataObject.cursorSphere->setName("cursorSphere");//Give it a name
-    dataObject.cursorSphere->setShapeColor(0.8,0.2,0.2);//Give it a color
-    dataObject.cursorSphere->setHapticVisibility(false);//Make the Sphere haptically invisible. this sphere replaces the cursor hence it must be haptically invisible or the proxy will keep colliding with the sphere
-    DisplayObject->tell(dataObject.cursorSphere);//Tell QuickHaptics
-    
-    dataObject.forceArrow = new Cylinder(chargeRadius/4,1,15);//Initialise a cylinder
-    dataObject.forceArrow->setShapeColor(0.2,0.7,0.2);//Give it a color
-    dataObject.forceArrow->setHapticVisibility(false);//Make it haptictically invisible
-    dataObject.forceArrow->setName("forceArrow");//Give it a name
-    DisplayObject->tell(dataObject.forceArrow);//tell Quickhaptics
-        
-    dataObject.forceArrowTip = new Cone(2,4,15);//Initialise a cone
-    dataObject.forceArrowTip->setShapeColor(1.0,0.0,0.0);//Give it a color
-    dataObject.forceArrowTip->setHapticVisibility(false);//Make it haptictically invisible
-    dataObject.forceArrowTip->setName("forceArrowTip");//Give it a name
-    DisplayObject->tell(dataObject.forceArrowTip);//tell Quickhaptics
+    hdGetDoublev(HD_CURRENT_POSITION, pDisplayState->position);
+    hdGetDoublev(HD_CURRENT_FORCE, pDisplayState->force);
 
-    dataObject.Model = new TriMesh("Models/skull.obj");//Load a Skull  Model for the Mesh
-    dataObject.Model->setName("Skull");//Give it a name
-    dataObject.Model->setHapticVisibility(false);//Make it haptically invisible
-	dataObject.Model->setShapeColor(0.35,0.15,0.75);//Make to color of the skull purple
-	dataObject.Model->setScale( .2 ); // make the skull smaller, about the same size as the sphere
-    DisplayObject->tell(dataObject.Model);//Tell QuickHaptics about it.
-    
-    dataObject.deviceCursor= new Cursor();//Get a new cursor
-    dataObject.deviceCursor->setName("devCursor");//Give it a name
-    dataObject.deviceCursor->setCursorGraphicallyVisible(false);//Make it graphically invisible
-    DisplayObject->tell(dataObject.deviceCursor);//Tell Quickhaptics about it.
-
-    dataObject.descriptionText = new Text(20.0,"This example demonstrates Coulomb Forces between two dynamic charges",
-        0.1,0.9);
-    dataObject.descriptionText->setShapeColor(0.7,0.0,0.4);
-    DisplayObject->tell(dataObject.descriptionText);
-
-    DisplayObject->preDrawCallback(GraphicsCallback);//Register the graphics callback
-    OmniSpace->startServoLoopCallback(startEffectCB, computeForceCB, stopEffectCB,&dataObject);//Register the servoloop callback
-
-
-	//
-	// Change the default camera, first set the Default Camera, 
-	// then read back the fov, eye point etc.
-	//
-	DisplayObject->setDefaultCamera();
-	
-	float fov, nearplane, farplane;
-	hduVector3Dd eyepoint, lookat, up;
-	DisplayObject->getCamera( &fov, &nearplane, &farplane, &eyepoint, &lookat, &up );
-
-	eyepoint[2] += 100.;	// pull back by 100
-	nearplane += 80.;		// recenter the haptic workspace (adjust by 20) 
-	farplane += 80.;
-	DisplayObject->setCamera( fov+15., nearplane, farplane,eyepoint, lookat, up );
-
-
-	//Set everything in motion
-    qhStart();
-	return 0;
-}
-
-
-//
-// The Graphics Callback runs in the application "client thread" (qhStart) and sets the transformations
-// for the Red Sphere and Green Line of the Cursor. Also, this callback sets the WorldToDevice matrix
-// for use in the ServoLoopCallback.
-//
-void GraphicsCallback(void)
-{
-    QHGLUT* localDisplayObject = QHGLUT::searchWindow("Coulomb Field Demo");//Get a Pointer to the display object
-    Cursor* localDeviceCursor = Cursor::searchCursor("devCursor");//Get a pointer to the cursor
-    Cylinder* localForceArrow = Cylinder::searchCylinder("forceArrow");//get a pointer to the cylinder
-    Cone* localForceArrowTip = Cone::searchCone("forceArrowTip");//get a pointer to the cylinder
-	Sphere* localCursorSphere = Sphere::searchSphere("cursorSphere");//get a pointer top the Sphere
-
-	if( localDisplayObject == NULL || localDeviceCursor == NULL || localForceArrow == NULL || localCursorSphere == NULL)
-		return;
-
-	hduMatrix CylinderTransform;//Transformation for the Cylinder. This transform makes it point toward the Model
-	hduVector3Dd localCursorPosition;
-	hduVector3Dd DirectionVecX;
-	hduVector3Dd PointOnPlane;
-	hduVector3Dd DirectionVecY;
-	hduVector3Dd DirectionVecZ;
-
-	//Compute the world to device transform
-    WorldToDevice = localDisplayObject->getWorldToDeviceTransform();
-
-	// Set transform for Red Sphere
-    localCursorPosition = localDeviceCursor->getPosition();//Get the local cursor position in World Space
-	
-	hduVector3Dd localCursorSpherePos = localCursorSphere->getTranslation();
-	localCursorSphere->setTranslation(-localCursorSpherePos);
-	localCursorSphere->setTranslation(localCursorPosition);//Set the position of the Sphere the same as the cursor
-    
-	////////////////////////////////////////////////////////////////////////////////////////////
-	//Code to calculate the transform of the green cylinder to point along the force direction
-	////////////////////////////////////////////////////////////////////////////////////////////
-	hduMatrix DeviceToWorld = WorldToDevice.getInverse();
-	HDdouble ForceMagnitude = forceVec.magnitude();
-	DeviceToWorld[3][0] = 0.0;			   
-	DeviceToWorld[3][1] = 0.0;			   
-	DeviceToWorld[3][2] = 0.0;
-	DirectionVecX = forceVec * DeviceToWorld;
-    DirectionVecX.normalize();
-    PointOnPlane.set(0.0,0.0,(DirectionVecX[0]*localCursorPosition[0] + DirectionVecX[1]*localCursorPosition[1] + DirectionVecX[2]*localCursorPosition[2])/DirectionVecX[2]);
-    DirectionVecY = PointOnPlane  - localCursorPosition;
-    DirectionVecY.normalize();
-
-    DirectionVecZ = -DirectionVecY.crossProduct(DirectionVecX);
-
-    CylinderTransform[0][0] = DirectionVecZ[0]; CylinderTransform[0][1] = DirectionVecZ[1]; CylinderTransform[0][2] = DirectionVecZ[2]; CylinderTransform[0][3] = 0.0;
-    CylinderTransform[1][0] = DirectionVecX[0]; CylinderTransform[1][1] = DirectionVecX[1]; CylinderTransform[1][2] = DirectionVecX[2]; CylinderTransform[1][3] = 0.0;
-    CylinderTransform[2][0] = DirectionVecY[0]; CylinderTransform[2][1] = DirectionVecY[1]; CylinderTransform[2][2] = DirectionVecY[2]; CylinderTransform[2][3] = 0.0;
-    CylinderTransform[3][0] = 0.0             ; CylinderTransform[3][1] = 0.0             ; CylinderTransform[3][2] = 0.0             ; CylinderTransform[3][3] = 1.0;
-    CylinderTransform = CylinderTransform * hduMatrix::createTranslation(localCursorPosition[0], localCursorPosition[1], localCursorPosition[2]);
-    
-    localForceArrow->update(chargeRadius/4, ForceMagnitude*50, 15);
-    localForceArrow->setTranslation(localCursorPosition);
-    localForceArrow->setTransform(CylinderTransform);
-
-     hduMatrix ConeTransform = CylinderTransform * hduMatrix::createTranslation(DirectionVecX[0]
-     * ForceMagnitude*50,DirectionVecX[1] * ForceMagnitude*50,DirectionVecX[2] * ForceMagnitude*50 );
-
-    localForceArrowTip->setTransform(ConeTransform);
-	/////////////////////////////////////////////
-}
-
-
-/***************************************************************************************
- Servo loop thread callback.  Computes a force effect. This callback defines the motion
- of the purple skull and calculates the force based on the "real-time" Proxy position
- in Device space.
-****************************************************************************************/
-void HLCALLBACK computeForceCB(HDdouble force[3], HLcache *cache, void *userdata)
-{
-    DataTransportClass *localdataObject = (DataTransportClass *) userdata;//Typecast the pointer passed in appropriately
-    hduVector3Dd skullPositionDS;//Position of the skull (Moving sphere) in Device Space.
-	hduVector3Dd proxyPosition;//Position of the proxy in device space
-	HDdouble instRate = 0.0;
-	HDdouble deltaT = 0.0;
-	static float counter = 0.0;
-	float degInRad = 0.0;
-	static int counter1 = 0;
-
-    // Get the time delta since the last update.
-    hdGetDoublev(HD_INSTANTANEOUS_UPDATE_RATE, &instRate);
-    deltaT = 1.0 / instRate;
-    counter+=deltaT;
-    degInRad = counter*20*3.14159/180;
-    
-	hduVector3Dd ModelPos = localdataObject->Model->getTranslation();
-	localdataObject->Model->setTranslation(-ModelPos);
-	localdataObject->Model->setTranslation(cos(degInRad)*64.0, sin(degInRad)*64.0,5.0);//Move the skull aroubnd in a circle
-
-    WorldToDevice.multVecMatrix(localdataObject->Model->getTranslation(),skullPositionDS);//Convert the position of the sphere from world space to device space
- 
-    hlCacheGetDoublev(cache, HL_PROXY_POSITION, proxyPosition);//Get the position of the proxy in Device Coordinates (All HL commands in the servo loop callback fetch values in device coordinates)
-    forceVec = forceField(proxyPosition, skullPositionDS, 40.0, 5.0);//Calculate the force
-
-    counter1++;
-    if(counter1>2000)//Make the force start after 2 seconds of program start. This is because the servo loop thread executes before the graphics thread. 
-		//Hence global variables set in the graphics thread will not be valid for sometime in the begining og the program
-    {
-        force[0] = forceVec[0];
-        force[1] = forceVec[1];
-        force[2] = forceVec[2];
-        counter1 = 2001;
-    }
-    else
-    {
-        force[0] = 0.0;
-        force[1] = 0.0;
-        force[2] = 0.0;
-    }
-}
-
-
-/******************************************************************************
- Servo loop thread callback called when the effect is started.
-******************************************************************************/
-void HLCALLBACK startEffectCB(HLcache *cache, void *userdata)
-{
-    DataTransportClass *localdataObject = (DataTransportClass *) userdata;
-    printf("Custom effect started\n");
-}
-
-
-/******************************************************************************
- Servo loop thread callback called when the effect is stopped.
-******************************************************************************/
-void HLCALLBACK stopEffectCB(HLcache *cache, void *userdata)
-{
-    printf("Custom effect stopped\n");
+    // execute this only once.
+    return HD_CALLBACK_DONE;
 }
 
 
 /*******************************************************************************
- Given the position of the two charges in space,
- calculates the (modified) coulomb force.
+ Graphics main loop function.
 *******************************************************************************/
-hduVector3Dd forceField(hduVector3Dd Pos1, hduVector3Dd Pos2, HDdouble Multiplier, HLdouble Radius)
+void displayFunction(void)
 {
-    hduVector3Dd diffVec = Pos2 - Pos1 ;//Find the difference in position
-    double dist = 0.0;
-    hduVector3Dd forceVec(0,0,0);
-	
-    HDdouble nominalMaxContinuousForce;
-    hdGetDoublev(HD_NOMINAL_MAX_CONTINUOUS_FORCE, &nominalMaxContinuousForce);//Find the max continuous for that the device is capable of
+    // Setup model transformations.
+    glMatrixMode(GL_MODELVIEW); 
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    dist = diffVec.magnitude();
+    glPushMatrix();
 
-	if(dist < Radius*2.0) //Spring force (when the model and cursor are within a 'sphere of influence'
-    {
-        diffVec.normalize();
-        forceVec =  (Multiplier) * diffVec * dist /(4.0 * Radius * Radius);
-        static int i=0;
-    }
-    else //Inverse square attraction
-    {
-        forceVec = Multiplier * diffVec/(dist*dist);
-    }
+    setupGraphicsState();
+    drawAxes(sphereRadius*3.0);
 
-    for(int i=0;i<3;i++)//Limit force calculated to Max continuouis. This is very important because force values exceeding this value can damage the device motors.
-    {
-        if(forceVec[i]>nominalMaxContinuousForce)
-            forceVec[i] = nominalMaxContinuousForce;
+    // Draw the fixed sphere.
+    static const hduVector3Dd fixedSpherePosition(0, 0, 0);
+    static const float fixedSphereColor[4] = {.2, .8, .8, .8};
+    GLUquadricObj* pQuadObj = gluNewQuadric();
+   // drawSphere(pQuadObj, fixedSpherePosition, fixedSphereColor, sphereRadius);
 
-        if(forceVec[i]<-nominalMaxContinuousForce)
-            forceVec[i] = -nominalMaxContinuousForce;
-    }
+    // Get the current position of end effector.
+    DeviceDisplayState state;
+    hdScheduleSynchronous(DeviceStateCallback, &state,
+                          HD_MIN_SCHEDULER_PRIORITY);
 
-	return forceVec;
+    // Draw a sphere to represent the haptic cursor and the dynamic 
+    // charge.
+    static const float dynamicSphereColor[4] = { .8, .2, .2, .8 };
+    drawSphere(pQuadObj, 
+               state.position,
+               dynamicSphereColor,
+               sphereRadius);    
+
+	for (int i = 0; i < Shape_size; i++)
+	{
+		//glBegin(GL_POINTS); //starts drawing of points
+
+		//glVertex3f(Shape[0][0], Shape[0][1], Shape[0][2]);//upper-right corner
+
+		GLUquadricObj* pQuadObj1 = gluNewQuadric();
+		drawSphere(pQuadObj1, Shape[i], fixedSphereColor, mySphereRadius);
+		
+
+		//glEnd();//end drawing of points
+	}
+
+
+    // Create the force vector.
+    hduVector3Dd forceVector = 40.0 * forceField(state.position, Shape, Shape_size);
+	//if (forceVector.magnitude() > 40.0) forceVector = normalize(forceVector) * 40.0;
+
+    drawForceVector(pQuadObj,
+                    state.position,
+                    forceVector,
+                    sphereRadius*.1);
+
+    gluDeleteQuadric(pQuadObj);
+  
+    glPopMatrix();
+    glutSwapBuffers();                      
 }
+                                
+/*******************************************************************************
+ Called periodically by the GLUT framework.
+*******************************************************************************/
+void handleIdle(void)
+{
+    glutPostRedisplay();
+
+    if (!hdWaitForCompletion(gSchedulerCallback, HD_WAIT_CHECK_STATUS))
+    {
+        printf("The main scheduler callback has exited\n");
+        printf("Press any key to quit.\n");
+        getchar();
+        exit(-1);
+    }
+}
+
+/******************************************************************************
+ Popup menu handler
+******************************************************************************/
+void handleMenu(int ID)
+{
+    switch(ID) 
+    {
+        case 0:
+            exit(0);
+            break;
+        case 1:
+            charge *= -1;
+            break;
+    }
+}
+
+
+/*******************************************************************************
+ Given the position is space, calculates the (modified) coulomb force.
+*******************************************************************************/
+hduVector3Dd forceField(hduVector3Dd pos, hduVector3Dd* shape, int shape_size)
+{
+	double scale = 12.0;
+	hduVector3Dd forceVec(0, 0, 0);
+	for (int i = 0; i < shape_size; i++) {
+		hduVector3Dd diff = pos - shape[i];
+		double dist = diff.magnitude();
+
+
+		// if two charges overlap...
+		if (dist < sphereRadius*2.0)
+		{
+			// Attract the charge to the center of the sphere.
+			hduVector3Dd unitPos = normalize(diff);
+			return -scale*unitPos;
+		}
+		else
+		{
+			hduVector3Dd unitPos = normalize(diff);
+			forceVec += -scale*unitPos / (dist*dist);
+		}
+	}
+		forceVec *= charge;
+		return forceVec;
+	
+}
+
+/*******************************************************************************
+ Main callback that calculates and sets the force.
+*******************************************************************************/
+HDCallbackCode HDCALLBACK CoulombCallback(void *data)
+{
+    HHD hHD = hdGetCurrentDevice();
+
+    hdBeginFrame(hHD);
+
+    hduVector3Dd pos;
+    hdGetDoublev(HD_CURRENT_POSITION,pos);
+    hduVector3Dd forceVec;
+	forceVec = forceField(pos, Shape, Shape_size);
+    hdSetDoublev(HD_CURRENT_FORCE, forceVec);
+        
+    hdEndFrame(hHD);
+
+    HDErrorInfo error;
+    if (HD_DEVICE_ERROR(error = hdGetError()))
+    {
+        hduPrintError(stderr, &error, "Error during scheduler callback");
+        if (hduIsSchedulerError(&error))
+        {
+            return HD_CALLBACK_DONE;
+        }
+    }
+
+    return HD_CALLBACK_CONTINUE;
+}
+
+/*******************************************************************************
+ Schedules the coulomb force callback.
+*******************************************************************************/
+void CoulombForceField()
+{
+    gSchedulerCallback = hdScheduleAsynchronous(
+        CoulombCallback, 0, HD_DEFAULT_SCHEDULER_PRIORITY);
+
+    HDErrorInfo error;
+    if (HD_DEVICE_ERROR(error = hdGetError()))
+    {
+        hduPrintError(stderr, &error, "Failed to initialize haptic device");
+        fprintf(stderr, "\nPress any key to quit.\n");
+        getchar();
+        exit(-1);
+    }
+
+
+    glutMainLoop(); // Enter GLUT main loop.
+}
+
+/******************************************************************************
+ This handler gets called when the process is exiting. Ensures that HDAPI is
+ properly shutdown
+******************************************************************************/
+void exitHandler()
+{
+    hdStopScheduler();
+    hdUnschedule(gSchedulerCallback);
+
+    if (ghHD != HD_INVALID_HANDLE)
+    {
+        hdDisableDevice(ghHD);
+        ghHD = HD_INVALID_HANDLE;
+    }
+}
+
+
+
+
+
+
+
+
+
+void parse(string fileName)
+{
+	   cout << "Parse called" << endl;
+		ifstream stream1(fileName);		
+		string line;
+		double coords[3];
+		cout << "At while" << endl;
+		while (getline(stream1, line)) {
+			Shape_size++;
+		}
+		Shape_size++;
+		cout<<Shape_size << endl;
+		Shape = new hduVector3Dd[Shape_size];
+
+		ifstream stream(fileName);
+		int j = 0;
+		while (getline(stream, line)) {
+			j++;
+			size_t i = 2;
+
+			for (int coord = 0; coord < 3; coord++) {
+				//for each coordinate find corresponding substring n and convert to float
+				string number;
+
+				int count = 0;
+				while (i < line.length() - 1 && line[i] != ' ') {
+					i++;
+					count++;
+				}
+				i++;
+				count++;
+
+				number = line.substr(i - count, count);
+				coords[coord] = stod(number)*10;
+
+			}
+			hduVector3Dd vc(coords[0], coords[2]-35, coords[1]);
+			Shape[j] = vc;
+			
+
+		}
+
+		cout << "exited parse\n";
+		return;
+}
+
+void print(hduVector3Dd* Shape, int Shape_size) {
+	for (int i = 0; i < Shape_size; i++)
+	{
+		cout << "x = " << Shape[i][0] << " y = " << Shape[i][1] << " z = " << Shape[i][2] << "\n";
+	}
+}
+
+
+
+
+
+
+
+
+/******************************************************************************
+ Main function.
+******************************************************************************/
+int main(int argc, char* argv[])
+{
+    HDErrorInfo error;
+
+    printf("Starting application\n");
+    
+    atexit(exitHandler);
+
+	string file = "models/justcurves2.obj";
+
+	glPointSize(10.0f);
+	cout << "entering parse\n";
+	parse(file);
+	cout << "exiting parse\n";
+	cout << "entering print\n";
+	print(Shape, Shape_size);
+	cout << "exiting print\n";
+
+	glBegin(GL_POINTS);
+	glVertex3f(2, 2, 0);//upper-right corner
+	glEnd();
+
+
+    // Initialize the device.  This needs to be called before any other
+    // actions on the device are performed.
+    ghHD = hdInitDevice(HD_DEFAULT_DEVICE);
+    if (HD_DEVICE_ERROR(error = hdGetError()))
+    {
+        hduPrintError(stderr, &error, "Failed to initialize haptic device");
+        fprintf(stderr, "\nPress any key to quit.\n");
+        getchar();
+        exit(-1);
+    }
+
+    printf("Found device %s\n",hdGetString(HD_DEVICE_MODEL_TYPE));
+    
+    hdEnable(HD_FORCE_OUTPUT);
+    hdEnable(HD_MAX_FORCE_CLAMPING);
+
+    hdStartScheduler();
+    if (HD_DEVICE_ERROR(error = hdGetError()))
+    {
+        hduPrintError(stderr, &error, "Failed to start scheduler");
+        fprintf(stderr, "\nPress any key to quit.\n");
+        getchar();
+        exit(-1);
+    }
+    
+    initGlut(argc, argv);
+
+    // Get the workspace dimensions.
+    HDdouble maxWorkspace[6];
+    hdGetDoublev(HD_MAX_WORKSPACE_DIMENSIONS, maxWorkspace);
+
+    // Low/left/back point of device workspace.
+    hduVector3Dd LLB(maxWorkspace[0], maxWorkspace[1], maxWorkspace[2]);
+    // Top/right/front point of device workspace.
+    hduVector3Dd TRF(maxWorkspace[3], maxWorkspace[4], maxWorkspace[5]);
+    initGraphics(LLB, TRF);
+
+    // Application loop.
+    CoulombForceField();
+
+	delete[] Shape;
+
+    printf("Done\n");
+    return 0;
+}
+
+/******************************************************************************/
